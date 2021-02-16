@@ -1,4 +1,4 @@
-# GasDectionSystem
+# GasDectionSystem 定点采集部分
 输气站场气体泄漏检测系统（基于STM32f103)
 
 名    称:输气站场气体泄漏检测系统
