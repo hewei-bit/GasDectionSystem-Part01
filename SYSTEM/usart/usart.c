@@ -5,6 +5,32 @@
 #if SYSTEM_SUPPORT_OS
 #include "includes.h"					//os 使用	  
 #endif
+//////////////////////////////////////////////////////////////////////////////////	 
+//本程序只供学习使用，未经作者许可，不得用于其它任何用途
+//ALIENTEK STM32开发板
+//串口1初始化		   
+//正点原子@ALIENTEK
+//技术论坛:www.openedv.com
+//修改日期:2012/8/18
+//版本：V1.5
+//版权所有，盗版必究。
+//Copyright(C) 广州市星翼电子科技有限公司 2009-2019
+//All rights reserved
+//********************************************************************************
+//V1.3修改说明 
+//支持适应不同频率下的串口波特率设置.
+//加入了对printf的支持
+//增加了串口接收命令功能.
+//修正了printf第一个字符丢失的bug
+//V1.4修改说明
+//1,修改串口初始化IO的bug
+//2,修改了USART_RX_STA,使得串口最大接收字节数为2的14次方
+//3,增加了USART_REC_LEN,用于定义串口最大允许接收的字节数(不大于2的14次方)
+//4,修改了EN_USART1_RX的使能方式
+//V1.5修改说明
+//1,增加了对UCOSII的支持
+////////////////////////////////////////////////////////////////////////////////// 	  
+ 
 
 //////////////////////////////////////////////////////////////////
 //加入以下代码,支持printf函数,而不需要选择use MicroLIB	  
@@ -103,84 +129,35 @@ void uart_init(u32 bound){
 
 }
 
-void usart1_send_str(char *pstr)
-{
-	char *p = pstr;
-	
-	while(p && *p !='\0')
-	{
-	
-		//发送数据
-		USART_SendData(USART1,*p);
-		
-		//等待发送完毕
-		while(USART_GetFlagStatus(USART1,USART_FLAG_TXE)==RESET);	
-		
-		p++;
-	}
-}
-
 void USART1_IRQHandler(void)                	//串口1中断服务程序
-{
+	{
 	u8 Res;
-	OS_ERR err;
-	
-	int len = 0;
-	int t = 0;
-	
-	
-	
 #ifdef SYSTEM_SUPPORT_OS	 	
 	OSIntEnter();    
 #endif
 	if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)  //接收中断(接收到的数据必须是0x0d 0x0a结尾)
-	{
+		{
 		Res =USART_ReceiveData(USART1);//(USART1->DR);	//读取接收到的数据
 		
 		if((USART_RX_STA&0x8000)==0)//接收未完成
-		{
-			if(USART_RX_STA&0x4000)//接收到了0x0d
 			{
+			if(USART_RX_STA&0x4000)//接收到了0x0d
+				{
 				if(Res!=0x0a)USART_RX_STA=0;//接收错误,重新开始
 				else USART_RX_STA|=0x8000;	//接收完成了 
-			}
+				}
 			else //还没收到0X0D
-			{	
+				{	
 				if(Res==0x0d)USART_RX_STA|=0x4000;
 				else
-				{
+					{
 					USART_RX_BUF[USART_RX_STA&0X3FFF]=Res ;
 					USART_RX_STA++;
-				if(USART_RX_STA>(USART_REC_LEN-1))USART_RX_STA=0;//接收数据错误,重新开始接收	  
-				}		 
-			}
-		}   		 
+					if(USART_RX_STA>(USART_REC_LEN-1))USART_RX_STA=0;//接收数据错误,重新开始接收	  
+					}		 
+				}
+			}   		 
      } 
-		
-	if(USART_RX_STA&0x8000)
-	{
-		len=USART_RX_STA&0x3FFF;//得到此次接收数据的长度
-//		for(t=0;t<len;t++)
-//		{
-//			USART_SendData(USART1, USART_RX_BUF[t]);//向串口1发送数据
-//			while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
-//		}
-//		printf("TDLAS:%s\r\n",USART2_RX_BUF);
-	
-#if 1  //发送消息队列
-		OSQPost((OS_Q*		)&g_queue_usart1,
-				(void *     )USART_RX_BUF,
-				(OS_MSG_SIZE)len,
-				(OS_OPT		)OS_OPT_POST_FIFO,
-				(OS_ERR*	)&err);
-		if(err != OS_ERR_NONE)
-		{
-			printf("[USART2_IRQHandler]OSQPost error code %d\r\n",err);
-		}
-#endif
-	}		 
-	 
-	 
 #ifdef SYSTEM_SUPPORT_OS	 
 	OSIntExit();  											 
 #endif

@@ -1,15 +1,23 @@
+//核心头文件
+#include "includes.h"
 #include "delay.h"
 #include "sys.h"
 #include "usart.h"
+//串口
 #include "usart2.h"
+#include "usart3.h"
+#include "uart4.h"
+//外设
+#include "lora_app.h"
 #include "led.h"
+#include "beep.h"
 #include "dht11.h"
+#include "mq135.h"
 #include "oled.h"
-//#include "rc522.h"
-#include "cjson.h"
-#include "cJson_test.h"
+#include "key.h"
+#include "rtc.h"
 
-#include "includes.h"
+
 
 /****************************************************************
 *名    称:输气站场气体泄漏检测系统
@@ -18,8 +26,8 @@
 *当前日期:2020/11/16 完成V1.0
 *当前日期:2020/12/24 完成V2.0
 *当前日期:2021/01/08 完成V3.0
-*当前日期:2021/01/18 完成V4.0
-*当前日期:2021/02/16 未完成V4.0
+*当前日期:2021/03/09 完成V4.0
+
 *任务：
 	1.开始任务 创建信号量 消息队列 互斥锁 事件标志组 任务
 	2.DHT11温湿度采集,单总线采集，  	互斥锁 oled显示		数据通过消息队列发送数据到线程存储、转发任务
@@ -47,7 +55,6 @@
 //V3.0 完成上位机对下位机的数据问询
 //V4.0 完成lora信息传输 
 
-
 /*****************************定义任务堆栈*************************************/
 //UCOSIII中以下优先级用户程序不能使用，ALIENTEK
 //将这些优先级分配给了UCOSIII的5个系统内部任务
@@ -56,6 +63,7 @@
 //优先级2：定时任务 OS_TmrTask()
 //优先级OS_CFG_PRIO_MAX-2：统计任务 OS_StatTask()
 //优先级OS_CFG_PRIO_MAX-1：空闲任务 OS_IdleTask()
+
 
 //任务1 开始任务
 #define START_TASK_PRIO		3	
@@ -157,7 +165,7 @@ void TASK_STA_task(void *p_arg);
 
 
 //任务15 任务运行提示
-#define FLOAT_TASK_PRIO		6
+#define FLOAT_TASK_PRIO		21
 #define FLOAT_STK_SIZE		128
 OS_TCB	FloatTaskTCB;
 __align(8) CPU_STK	FLOAT_TASK_STK[FLOAT_STK_SIZE];
@@ -182,7 +190,9 @@ OS_MUTEX				g_mutex_NODE;
 /*****************************消息队列的对象*******************************/
 OS_Q	 				g_queue_usart1;	
 OS_Q	 				g_queue_usart2;				
-OS_Q	 				g_queue_usart3;				
+OS_Q	 				g_queue_usart3;	
+OS_Q	 				g_queue_usart4;	
+OS_Q	 				g_queue_usart5;	
 
 OS_Q					g_queue_dht11_to_lora;		//消息队列的对象
 OS_Q					g_queue_dht11_to_txt;		//消息队列的对象
@@ -201,24 +211,30 @@ OS_Q					g_queue_MQ4_to_txt;			//消息队列的对象
 uint32_t 				g_oled_display_flag=1;
 uint32_t 				g_oled_display_time_count=0;
 
-//节点结构体
-struct NODE
-{
-	int device_id;
-	int lora_address;
-	int lora_channel;
-	char* temperature;
-	char* humidity;
-	char* CH4concentration;
-} *node1,node_1;
-
 
 //存放DHT11和tdlas传感器数据
 char temp_buf[16] = {0};
 char humi_buf[16] = {0};
 char TDLAS[20] = {0};
+char MQ135[20] = {0};
+char MQ4[20] = {0};
 
+extern __IO u16 MQ135_ADC_ConvertedValue;
 
+//修改节点结构体
+NODE node_1;
+//节点初始化
+void node_init(void)
+{
+	node_1.device_id = 1;
+	node_1.lora_address = My_LoRa_CFG.addr;
+	node_1.lora_channel = My_LoRa_CFG.chn;
+	strcpy(node_1.temperature,"25.0");
+	strcpy(node_1.humidity,"50.0");
+	strcpy(node_1.CH4concentration,"000.0");
+}
+
+//互斥访问usart1
 #define DEBUG_PRINTF_EN	1
 void dgb_printf_safe(const char *format, ...)
 {
@@ -238,27 +254,69 @@ void dgb_printf_safe(const char *format, ...)
 #endif
 }
 
+void oled_showString_safe(int x,int y,char *string,int size,OS_ERR err)
+{
+	OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+		sprintf(string,"TDLAS: %d",x);
+		OLED_ShowString(x,y,(uint8_t *)string,size);
+	OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
+}
 
+
+/*******************************************
+		1.硬件初始化
+		2.串口初始化
+		3.start_task创建
+*********************************************/
 int main(void)
 {
 	OS_ERR err;
+	char node_message[16] = {0};
 	CPU_SR_ALLOC();
 	
-	/**************************硬件初始化*************************/
+	
+	
+	
+	node_init();		//node结构体初始化
+	
 	delay_init();       //延时初始化
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //中断分组配置
-	uart_init(115200);    //串口波特率设置
-	usart2_init(115200);    //串口波特率设置
-	LED_Init();         //LED初始化
-	OLED_Init();		//初始化OLED
-	//RC522_Init();	    //初始化射频卡芯片
 	
-	while(DHT11_Init());//温湿度传感器的初始化
+	uart_init(115200);    	//串口波特率设置
+	usart2_init(115200);    //串口波特率设置
+	uart4_init(115200);    	//串口波特率设置
+
+	while(LoRa_Init())		//初始化ATK-LORA-01模块
+	{
+		printf("未检测到    LORA   模块!!! \r\n");		
+		delay_ms(300);
+	}
+	LoRa_Set();				//初始化ATK-LORA-01模块
+	
+	
+	LED_Init();         //LED初始化
+	KEY_Init();			//KEY初始化 
+	BEEP_Init(); 		//BEEP初始化
+	
+	while(DHT11_Init())//温湿度传感器的初始化
+	{
+		printf("未检测到   DHT11   模块!!! \r\n");		
+		delay_ms(300);
+	}
+	mq135_init();		//mq135初始化
+	
+	
+	OLED_Init();		//初始化OLED
+	start_oled_ui();	//oled初始化配置
+	sprintf(node_message,"CHN:%d ADDR:%d",My_LoRa_CFG.chn,My_LoRa_CFG.addr);
+	OLED_ShowString(0,0,(uint8_t *)node_message,16);	
+	
+	RTC_Init();
+
 	
 	OSInit(&err);		//初始化UCOSIII
 	OS_CRITICAL_ENTER();//进入临界区
-	
-	//1.创建开始任务
+	//创建开始任务
 	OSTaskCreate((OS_TCB 	* )&StartTaskTCB,		//任务控制块
 				 (CPU_CHAR	* )"start task", 		//任务名字
                  (OS_TASK_PTR )start_task, 			//任务函数
@@ -272,13 +330,12 @@ int main(void)
                  (void   	* )0,					//用户补充的存储区
                  (OS_OPT      )OS_OPT_TASK_STK_CHK|OS_OPT_TASK_STK_CLR, //任务选项
                  (OS_ERR 	* )&err);				//存放该函数错误时的返回值
-	
 	OS_CRITICAL_EXIT();	//退出临界区	 
 	OSStart(&err);  //开启UCOSIII
 	while(1);
 }
 
-//任务1.开始任务函数
+//开始任务函数
 void start_task(void *p_arg)
 {
 	OS_ERR err;
@@ -286,7 +343,6 @@ void start_task(void *p_arg)
 	p_arg = p_arg;
 
 	CPU_Init();
-	
 #if OS_CFG_STAT_TASK_EN > 0u
    OSStatTaskCPUUsageInit(&err);  	//统计任务                
 #endif
@@ -317,7 +373,9 @@ void start_task(void *p_arg)
 	//创建消息队列，用于usart2发送至TDLAS
 	OSQCreate(&g_queue_usart1,"g_queue_usart1",16,&err);
 	OSQCreate(&g_queue_usart2,"g_queue_usart2",16,&err);
-	OSQCreate(&g_queue_usart2,"g_queue_usart3",16,&err);
+	OSQCreate(&g_queue_usart3,"g_queue_usart3",16,&err);
+	OSQCreate(&g_queue_usart4,"g_queue_usart4",16,&err);
+	OSQCreate(&g_queue_usart5,"g_queue_usart5",16,&err);
 	
 	//创建消息队列，用于dht11发送至lora
 	OSQCreate(&g_queue_dht11_to_lora,"g_queue_dht11_to_lora",16,&err);
@@ -331,7 +389,11 @@ void start_task(void *p_arg)
 	
 	OSQCreate(&g_queue_MQ4_to_lora,"g_queue_MQ4_to_lora",16,&err);
 	OSQCreate(&g_queue_MQ4_to_txt,"g_queue_MQ4_to_txt",16,&err);
-
+	
+	dgb_printf_safe("start_task task running\r\n");
+	
+	
+	
 	//2.创建DHT11任务
 	OSTaskCreate((OS_TCB 	* )&DHT11_Task_TCB,		
 				 (CPU_CHAR	* )"DHT11 task", 		
@@ -526,47 +588,11 @@ void start_task(void *p_arg)
                  (void   	* )0,				
                  (OS_OPT      )OS_OPT_TASK_STK_CHK|OS_OPT_TASK_STK_CLR, 
                  (OS_ERR 	* )&err);	
-
-	
 				 
 	OS_TaskSuspend((OS_TCB*)&StartTaskTCB,&err);		//挂起开始任务			 
 	OS_CRITICAL_EXIT();	//进入临界区
 }
-void json_test(struct NODE* node)
-{
-	/* Build the JSON array [[1, 2], {"cool": true}] */
-	/* print the version */
-	cJSON *root = NULL;
-	cJSON *Node = NULL;
-	char *out = NULL;
-	char *end = "#"; //数据尾部标识符
-	//printf("Version: %s\n", cJSON_Version());
 
-	/* Now some samplecode for building objects concisely: */	
-	root = cJSON_CreateObject();
-	cJSON_AddStringToObject(root,"reason",(const char *)"success");
-	cJSON_AddItemToObject(root,"node_1",Node = cJSON_CreateObject());
-	cJSON_AddNumberToObject(Node,"DeviceID",node->device_id);
-	cJSON_AddNumberToObject(Node,"LORA_ADD",node->lora_address);
-	cJSON_AddNumberToObject(Node,"LORA_CHN",node->lora_channel);
-	cJSON_AddStringToObject(Node, "Temp", node->temperature);
-	cJSON_AddStringToObject(Node, "humi", node->humidity);
-	cJSON_AddStringToObject(Node, "CH4_concentration", (const char *)node->CH4concentration);
-
-	/* Print to text */
-//	if (print_preallocated(root) != 0) {
-//		cJSON_Delete(root);
-//		return ;
-//	}
-
-	out = cJSON_Print(root); 
-	strcat(out,end);//添加数据尾部标识符
-	dgb_printf_safe("%s",out);
-	
-	cJSON_Delete(root);	
-	free(out);
-		
-}
 
 //任务2 DHT11温湿度采集 
 void DHT11_task(void *p_arg)
@@ -586,6 +612,38 @@ void DHT11_task(void *p_arg)
 	{
 		//读取温湿度值							  
 		DHT11_Read_Data(dht11_data);	
+		
+		//组合词条
+		sprintf((char *)buf,"T:%02d.%dC H:%02d.%d%%",dht11_data[2],dht11_data[3],dht11_data[0],dht11_data[1]);
+		
+		//赋值结构体
+		OSMutexPend(&g_mutex_DHT11,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		sprintf((char *)temp_buf,"%02d.%d",dht11_data[2],dht11_data[3]);
+		sprintf((char *)node_1.temperature,"%02d.%d",dht11_data[2],dht11_data[3]);
+		sprintf((char *)node_1.humidity,"%02d.%d",dht11_data[0],dht11_data[1]);
+		OSMutexPost(&g_mutex_DHT11,OS_OPT_POST_NONE,&err);
+		
+		//OLED显示
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		OLED_ShowString(0,2,(uint8_t *)buf,16);		
+		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+		
+		
+#if 1
+		//调试专用
+		//发送至usart1,进行调试
+		dgb_printf_safe("%s\r\n",buf);
+		//dgb_printf_safe("%s\r\n",temp_buf);
+		//dgb_printf_safe("%s\r\n",node_1.temperature);
+		//dgb_printf_safe("%c",temp_buf[0]);
+		//dgb_printf_safe("%c",temp_buf[1]);
+		//dgb_printf_safe("%c",temp_buf[2]);
+		//dgb_printf_safe("%c\r\n",temp_buf[3]);
+		//dgb_printf_safe("%s\r\n",humi_buf);
+#endif 
+		
+#if 0	
+		//消息队列
 		//发送消息给LORA任务
 		OSQPost((OS_Q*		)&g_queue_dht11_to_lora,		
 				(void*		)dht11_data,
@@ -599,33 +657,13 @@ void DHT11_task(void *p_arg)
 				//sizeof(dht11_data),
 				//OS_OPT_POST_FIFO,
 				//&err);
-		
-		//组合词条
-		sprintf((char *)buf,"T:%02d.%dC H:%02d.%d%%",dht11_data[2],dht11_data[3],dht11_data[0],dht11_data[1]);
-		//sprintf((char *)temp_buf,"%02d.%d",dht11_data[2],dht11_data[3]);
-		//sprintf((char *)humi_buf,"%02d.%d",dht11_data[0],dht11_data[1]);
-		
-		//发送至usart1,进行调试
-		//dgb_printf_safe("%s\r\n",buf);
-
-#if 0					
-		//lcd显示
-		OSMutexPend(&g_mutex_lcd,0,OS_OPT_PEND_BLOCKING,NULL,&err);
-		LCD_ShowString(30,150,100,16,16,temp_buf);
-		LCD_ShowString(30,170,100,16,16,humi_buf);
-		OSMutexPost(&g_mutex_lcd,OS_OPT_NONE,&err);		
-#endif	 
-
-		//OLED显示
-		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-		OLED_ShowString(0,2,buf,16);		
-		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+#endif
 
 		//延时发生任务调度
-		delay_ms(4000);
-
+		delay_ms(1000);
 	}
 }
+
 
 //任务3TDLAS气体浓度采集，串口接收浓度数据，互斥锁 oled显示	数据通过消息队列发送数据到线程存储、转发任务
 void TDLAS_task(void *p_arg)
@@ -633,16 +671,59 @@ void TDLAS_task(void *p_arg)
 	OS_ERR err;	
 	
 	int i = 0;
-	uint8_t TDLAS_buf[30];
+	int flag = 0;
+	
+	//定点模块浓度
+	int concen = 0;
+	
+	//遥测模块浓度
+	int gq_val = 0;
+	char gq_str[2] = {0};
+	int nd_val = 0;
+	char nd_str[5] = {0};
+	
+	//消息队列接收结果
 	uint8_t *TDLAS_res=NULL;
 	OS_MSG_SIZE TDLAS_size;
+	
+	//最终输出
+	char Fix_result[20] = {0};
+	char telemetry_result_light[20] = {0};
+	char telemetry_result_CH4[20] = {0};
+	
+	
 	dgb_printf_safe("TDLAS task running\r\n");
 	
 	while(1)
-	{		
+	{	
+
+#if 0
+		//测试代码	
+		if(flag){
+			concen += 100;
+		}
+		else{
+			concen -= 100;
+		}
 		
+		if (concen > 500 || concen < 0)
+		{
+			flag = ~flag;
+		}	
+		//赋值TDLAS
+		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+			sprintf(TDLAS,"%d",concen);
+		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+		
+		//OLED显示
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+			sprintf(result,"TDLAS: %d ppm",x);
+			OLED_ShowString(0,4,(uint8_t *)result,20);
+		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);	
+#endif		
+	
 #if 1	
-		//等待消息队列发生类型错误
+		//等待消息队列
 		TDLAS_res = OSQPend((OS_Q*			)&g_queue_usart2,
 							(OS_TICK		)0,
 							(OS_OPT			)OS_OPT_PEND_BLOCKING,
@@ -655,235 +736,287 @@ void TDLAS_task(void *p_arg)
 			dgb_printf_safe("[TDLAS_task_usart2][OSQPend]Error Code = %d\r\n",err);		
 		}
 		
+		//转换TDLAS数值，并合成输出字符串
+		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);
 		if(USART2_RX_STA&0x8000)
 		{                                           
 			int len=USART2_RX_STA&0x3FFF;//得到此次接收数据的长度
-			//dgb_printf_safe("len: %d \r\n",len);
 			for(i = 0;i < len;i++)
 			{
 				TDLAS[i] = USART2_RX_BUF[i];
 			}
+
 			//dgb_printf_safe("TDLAS:%s\r\n",USART2_RX_BUF);
 			//dgb_printf_safe("TDLAS:%s\r\n",TDLAS);
 			USART2_RX_STA = 0;
 		}	
+		
+#if 1		
+		//遥测模块需要截取字符串
+		//光照强度部分转换
+		strncpy(gq_str, TDLAS+8, 2);
+		//dgb_printf_safe(" %s \r\n",gq_str);
+		gq_val = atoi(gq_str);
+		//dgb_printf_safe("Light intensity : %d \r\n",gq_val);
+		sprintf(telemetry_result_light,"Light: %d",gq_val);
+		
+		//浓度部分转换
+		strncpy(nd_str, TDLAS+21, 5);
+		//dgb_printf_safe(" %s \r\n",nd_str);
+		nd_val = atoi(nd_str);
+		//dgb_printf_safe("CH4 concentration : %d \r\n",nd_val);
+		sprintf(telemetry_result_CH4,"CH4: %d",nd_val);
+		
+		
+		//在OLED上显示
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+		OLED_ShowString(0,4,(uint8_t *)telemetry_result_CH4,16);
+		OLED_ShowString(56,4,(uint8_t *)telemetry_result_light,16);
+		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
+#endif
+
+#if 0		
+		//定点模块直接转换即可
+		concen = atoi(TDLAS);
+		sprintf(Fix_result,"TDLAS: %d ppm",concen);	
+		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+
+		//在OLED上显示
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		OLED_ShowString(0,4,(uint8_t *)Fix_result,20);
+		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
+
+#endif
+
 #endif 
 		//延时发生任务调度
 		delay_ms(1000);
 	}
 }
-
-
-//任务4  mq135 气体浓度采集	
+	
+//任务4  mq135 氨气、硫化物、笨系蒸汽 气体浓度采集	
 void MQ135_task(void *parg)
 {
 	OS_ERR err;
-	//dgb_printf_safe("MQ135 task running\r\n");
+
+	//mq135转换值
+	float MQ135_ADC_ConvertedValue_Local;
+	float AIR_Quality;
+	float AIR_Quality2;
+	uint8_t air_1_buf[16] = {0};
+	uint8_t air_2_buf[16] = {0};
+	
+	dgb_printf_safe("MQ135 task running\r\n");
 	
 	while(1)
 	{
-		delay_ms(100);
+		
+#if 0 
+		//把电平的模拟信号转换成数值  公式：转换后 = 浮点数 ADC值 /4096 * 3.3
+		MQ135_ADC_ConvertedValue_Local = (float)MQ135_ADC_ConvertedValue/4096*3.3;
+		
+		//空气质量检测值的转换公式 公式：ADC数值 * 3300 /4095
+		AIR_Quality = ((float)MQ135_ADC_ConvertedValue_Local * VREF)/MAX_CONVERTED_VALUE;
+		
+		//再修正一次
+		//AIR_Quality2 = AIR_Quality/1000;
+		
+		//组合词条
+		sprintf((char *)air_1_buf,"AIR_1:%2.3f",AIR_Quality);
+		sprintf((char *)air_2_buf,"CH4:%2.3f ppm ",AIR_Quality);
+
+
+	 	//OLED显示浓度
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		OLED_ShowString(0,5,air_2_buf,16);
+		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+#endif
+		
+		//延时发生任务调度
+		delay_ms(1000);
 	}
 }
-
-//任务5 mq4 气体浓度采集	
+	
+//任务5 mq4 甲烷 气体浓度采集	
 void MQ4_task(void *parg)
 {
 	OS_ERR err;
-	//dgb_printf_safe("MQ4 task running\r\n");
+	
+	/*************************
+	MQ4 与 MQ135 区别不大因此使用相同的转换口，
+	无天然气环境下，实测AOUT端的电压为0.0.725V，
+	当检测到天然气时，电压升高0.1V，实际检测到的气体浓度增加200ppm
+	*******************************************/
+
+	//mq135转换值
+	float MQ135_ADC_ConvertedValue_Local;
+	int CH4_ppm;
+	int Voltage;
+	
+	dgb_printf_safe("MQ4 task running\r\n");
 	
 	while(1)
 	{
-		delay_ms(100);
+		//把电平的模拟信号转换成数值  公式：转换后 = 浮点数 ADC值 /4096 * 3.3
+		Voltage = MQ135_ADC_ConvertedValue/4096*3.3;
+		
+		//空气质量检测值的转换公式 公式：ADC数值 * 3300 /4095
+		CH4_ppm = (Voltage - 0.5) / 0.1 * 200;
+		
+		
+		//组合词条
+		sprintf((char *)MQ4,"CH4:%2.3f ppm ",CH4_ppm);
+
+	 	//OLED显示浓度
+//		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+//		OLED_ShowString(0,4,(uint8_t *)MQ4,16);
+//		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+
+		//延时发生任务调度
+		delay_ms(2000);
 	}
 }
 
 //任务6 看门狗 
 void IWG_task(void *parg)
 {
-	OS_ERR err;
-	//dgb_printf_safe("IWG task running\r\n");
 	
-	while(1)
-	{
-		delay_ms(100);
-	}
 }
-
+	
 //任务7 等待多个内核对象 消息队列接收数据 以txt格式存入SD卡
 void SAVE_task(void *parg)
 {
-	OS_ERR err;
-	//dgb_printf_safe("SAVE task running\r\n");
 	
-	while(1)
-	{
-		delay_ms(100);
-	}
 }
+
 
 //任务8 LORA转发 等待多个内核对象 消息队列接收数据 usart3 发送至上位机
 void LORA_task(void *p_arg)
 {
-	OS_ERR err;  
-	int i = 0;
-	char *dht11_data_recv = NULL;
-	OS_MSG_SIZE dht11_data_size;
-	char buf[16] = {0};
-	char USART_buf[30];
-	OS_MSG_SIZE USART_size;
-	char *USART_res = NULL;
-	
-	//等待多个内核对象
-	OS_OBJ_QTY index;
-	OS_PEND_DATA pend_multi_tbl[CORE_OBJ_NUM];	
-	pend_multi_tbl[0].PendObjPtr=(OS_PEND_OBJ*)&g_queue_usart1;
-	pend_multi_tbl[1].PendObjPtr=(OS_PEND_OBJ*)&g_queue_dht11_to_lora;
-	
-	node1 = (struct NODE*)malloc(sizeof(struct NODE));
+	OS_ERR err; 
 	
 	dgb_printf_safe("LORA task running\r\n");
-	
+
+	int i=0;
 	while(1)
 	{
-#if 1	
-		//等待多个内核对象
-		index = OSPendMulti((OS_PEND_DATA*	)pend_multi_tbl,		//内核对象数组	
-							(OS_OBJ_QTY		)CORE_OBJ_NUM,			//内核数量
-							(OS_TICK	 	)0,						//永远等待下去
-							(OS_OPT        	)OS_OPT_PEND_BLOCKING,
-							(OS_ERR*		)&err);
-		if(err != OS_ERR_NONE)
-		{
-			dgb_printf_safe("[app_task_lora_dht11][OSQPend]Error Code = %d\r\n",err);
-			continue;
-		}
-		//如果就绪的是信号量
-		if(pend_multi_tbl[0].RdyObjPtr == (OS_PEND_OBJ *)(&g_queue_usart1)){
-			//dgb_printf_safe("\r\ncheck\r\n");
-			if(USART_RX_STA&0x8000)
-			{                                           
-				int len=USART_RX_STA&0x3FFF;//得到此次接收数据的长度
-				//dgb_printf_safe("usart1_len: %d \r\n",len);
-				//dgb_printf_safe("TDLAS:%s\r\n",USART_RX_BUF);
-					
-				if(strstr((const char *)USART_RX_BUF,"check"))
-				{
-					OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);
-					json_test(node1);
-					OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
-				}
-				
-				USART_RX_STA = 0;
-			}	
-		}
-		else if(pend_multi_tbl[1].RdyObjPtr == (OS_PEND_OBJ *)(&g_queue_dht11_to_lora))
-		{
-			dht11_data_recv = pend_multi_tbl[1].RdyMsgPtr;
-			sprintf((char *)buf,"T:%02d.%02dC H:%02d.%02d%%",dht11_data_recv[2],dht11_data_recv[3],dht11_data_recv[0],dht11_data_recv[1]);
-			sprintf((char *)temp_buf,"%02d.%d",dht11_data_recv[2],dht11_data_recv[3]);
-			sprintf((char *)humi_buf,"%02d.%d",dht11_data_recv[0],dht11_data_recv[1]);
-			//dgb_printf_safe("%s\r\n",buf);
-			//dgb_printf_safe("\r\n收到消息队列\r\n");
-
-			OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);
-			node1->device_id = 1;
-			node1->lora_address = 10;
-			node1->lora_channel = 23;
-			node1->humidity = humi_buf;
-			node1->temperature = temp_buf;
-			node1->CH4concentration = TDLAS;
-			//json_test(node1);
-			OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
-			
-			memset((void *)buf,0,sizeof(buf));
-			//memset((void *)temp_buf,0,sizeof(temp_buf));
-			//memset((void *)humi_buf,0,sizeof(humi_buf));
-		}
-#endif	
-	
-#if 0
-		//等待dht11消息队列
-		dht11_data_recv = OSQPend((OS_Q*			)&g_queue_dht11_to_lora,   
-								(OS_TICK		)0,
-								(OS_OPT			)OS_OPT_PEND_BLOCKING,
-								(OS_MSG_SIZE*	)&dht11_data_size,		
-								(CPU_TS*		)0,
-								(OS_ERR*		)&err);
-		//正确接收到消息
-		if(dht11_data_recv && dht11_data_size)
-		{
-			//dgb_printf_safe("recv from dht11 %d\r\n",err);
-			//组合词条
-			//sprintf((char *)buf,"T:%02d.%dC H:%02d.%d%%",dht11_data_recv[2],dht11_data_recv[3],dht11_data_recv[0],dht11_data_recv[1]);
-			//sprintf((char *)temp_buf,"%02d.%d",dht11_data_recv[2],dht11_data_recv[3]);
-			//sprintf((char *)humi_buf,"%02d.%d",dht11_data_recv[0],dht11_data_recv[1]);
-			//sprintf((char *)CH4_buf,"5000");	
-			
-			node1->device_id = 10;
-			node1->lora_address = 10;
-			node1->lora_channel = 23;
-			node1->humidity = humi_buf;
-			node1->temperature = temp_buf;
-			node1->CH4concentration = TDLAS;
-			
-			//发送至usart1,进行调试
-			//dgb_printf_safe("%s\r\n",buf);
-			json_test(node1);
-		
-			memset((void *)buf,0,sizeof(buf));
-			memset((void *)temp_buf,0,sizeof(temp_buf));
-			memset((void *)humi_buf,0,sizeof(humi_buf));
-			memset((void *)CH4_buf,0,sizeof(CH4_buf));
-		}		
-#endif
-
-#if 0	
-		//等待消息队列
-		USART_res = OSQPend((OS_Q*			)&g_queue_usart1,
-							(OS_TICK		)0,
-							(OS_OPT			)OS_OPT_PEND_BLOCKING,
-							(OS_MSG_SIZE*	)&USART_size,
-							(CPU_TS*		)NULL,
-							(OS_ERR*		)&err);
-		
-		if(err != OS_ERR_NONE)
-		{
-			dgb_printf_safe("[_task_usart][OSQPend]Error Code = %d\r\n",err);		
-		}
-		
-		if(USART_RX_STA&0x8000)
-		{                                           
-			int len=USART_RX_STA&0x3FFF;//得到此次接收数据的长度	
-			//dgb_printf_safe("usart1_len: %d \r\n",len);
-			//dgb_printf_safe("TDLAS:%s\r\n",USART_RX_BUF);
-		
-			if(strstr((const char *)USART_RX_BUF,"check"))
-			{
-				json_test(node1);
-			}
-			
-			USART_RX_STA = 0;
-		}	
-#endif 
-			
+//		for(i=0; i<sizeof(node_1);i++) 
+//			USART_SendData(USART1,*((u8*)&node_1+i));
 		delay_ms(1000);
-		
 	}
+
 }
+	
 //任务9 rtc时间显示	互斥锁 oled显示	
 void RTC_task(void *parg)
 {
 	OS_ERR err;
-	//dgb_printf_safe("BEEP task running\r\n");
+	u8 t = 0;	
+	char date_time[20] = {0};
+	dgb_printf_safe("RTC task running\r\n");
+	
+	
+//OLED显示时间		
+#if 1		
 	
 	while(1)
 	{
-		delay_ms(100);
+		if(t!=calendar.sec)
+		{
+			t=calendar.sec;
+			OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+			
+			
+			sprintf(date_time,"%d:%d:%d %d:%d",
+			calendar.w_year,calendar.w_month,calendar.w_date,calendar.hour,calendar.min);
+			OLED_ShowString(0,7,(uint8_t *)date_time,20);
+//			switch(calendar.week)
+//			{
+//				case 0:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Sunday   ");
+//					break;
+//				case 1:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Monday   ");
+//					break;
+//				case 2:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Tuesday  ");
+//					break;
+//				case 3:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Wednesday");
+//					break;
+//				case 4:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Thursday ");
+//					break;
+//				case 5:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Friday   ");
+//					break;
+//				case 6:
+//					LCD_ShowString(60,232,200,16,16,(u8 *)"Saturday ");
+//					break;  
+//			}
+
+			OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);	
+		}	
+		delay_ms(1000);
 	}
+	
+#endif	
+	
+	
+//LCD显示时间		
+#if 0	
+	//显示时间框框
+	POINT_COLOR=BLUE;
+	OSMutexPend(&g_mutex_lcd,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+	LCD_ShowString(60,200,200,16,16,"    -  -  ");	   
+	LCD_ShowString(60,216,200,16,16,"  :  :  ");	
+	OSMutexPost(&g_mutex_lcd,OS_OPT_NONE,&err);		
+	
+	while(1)
+	{
+		if(t!=calendar.sec)
+		{
+			t=calendar.sec;
+			OSMutexPend(&g_mutex_lcd,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+			LCD_ShowNum(60,200,calendar.w_year,4,16);									  
+			LCD_ShowNum(100,200,calendar.w_month,2,16);									  
+			LCD_ShowNum(124,200,calendar.w_date,2,16);	 
+			switch(calendar.week)
+			{
+				case 0:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Sunday   ");
+					break;
+				case 1:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Monday   ");
+					break;
+				case 2:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Tuesday  ");
+					break;
+				case 3:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Wednesday");
+					break;
+				case 4:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Thursday ");
+					break;
+				case 5:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Friday   ");
+					break;
+				case 6:
+					LCD_ShowString(60,232,200,16,16,(u8 *)"Saturday ");
+					break;  
+			}
+			LCD_ShowNum(60,216,calendar.hour,2,16);									  
+			LCD_ShowNum(84,216,calendar.min,2,16);									  
+			LCD_ShowNum(108,216,calendar.sec,2,16);
+			OSMutexPost(&g_mutex_lcd,OS_OPT_NONE,&err);	
+		}	
+		delay_ms(1000);
+	}
+#endif	
+	
+
 }
-
-
+	
 //任务10.系统运行提示 led0任务函数
 void led0_task(void *p_arg)
 {
@@ -899,28 +1032,64 @@ void led0_task(void *p_arg)
 }
 
 //任务11.光报警任务 led1任务函数
+// LED1 = 1 时蜂鸣器启动
+// LED1 = 0 时蜂鸣器关闭
 void led1_task(void *p_arg)
 {
 	OS_ERR err;
 	p_arg = p_arg;
+	int concen = 0;
 	while(1)
 	{
-		LED1=~LED1;
-		OSTimeDlyHMSM(0,0,0,500,OS_OPT_TIME_HMSM_STRICT,&err); //延时500ms
+		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		concen = atoi(TDLAS);
+		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+		
+		//dgb_printf_safe("concen: %d \r\n",concen);
+		if(concen > 400)
+		{	
+			LED1 = 0;	
+		}
+		else{
+			LED1 = 1;	
+		}
+		
+		delay_ms(2000);
 	}
 }
 
+
 //任务12.声音报警任务
+// BEEP = 1 时蜂鸣器启动
+// BEEP = 0 时蜂鸣器关闭
 void BEEP_task(void *p_arg)
 {
 	OS_ERR err;
-	//dgb_printf_safe("BEEP task running\r\n");
-	
+	p_arg = p_arg;
+	int concen = 0;
+			
+	dgb_printf_safe("BEEP task running\r\n");
+
 	while(1)
-	{
-		delay_ms(100);
+	{	
+		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		concen = atoi(TDLAS);
+		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+		
+		//dgb_printf_safe("concen: %d \r\n",concen);
+		if(concen > 400)
+		{	
+			BEEP = 0;	
+		}
+		else{
+			BEEP = 0;	
+		}
+		
+
+		delay_ms(1000);
 	}
 }
+	
 
 //任务13.按键任务
 void KEY_task(void *p_arg)
@@ -933,7 +1102,6 @@ void KEY_task(void *p_arg)
 	
 	while(1)
 	{
-#if 0
 		//一直阻塞等待事件标志置1，等待成功后，将对应清0
 		flags = OSFlagPend(&g_flag_grp,FLAG_GRP_KEY0_DOWN
 									|FLAG_GRP_KEY1_DOWN
@@ -1023,11 +1191,11 @@ void KEY_task(void *p_arg)
 //			//清空EXTI4中断标志位
 //			EXTI_ClearITPendingBit(EXTI_Line4);			
 //		}
-#endif		
+		
 		delay_ms(1000);
 	}
 }
-
+	
 //任务14.系统内存占用监视
 void TASK_STA_task(void *p_arg)
 {
@@ -1055,8 +1223,6 @@ void TASK_STA_task(void *p_arg)
 		OSTaskStkChk (&SAVE_Task_TCB,&free,&used,&err); 
 		dgb_printf_safe("app_task_mpu6050  stk[used/free:%d/%d usage:%d%%]\r\n",used,free,(used*100)/(used+free));			
 
-	
-		
 		OSTaskStkChk (&LED0_Task_TCB,&free,&used,&err); 
 		dgb_printf_safe("app_task_rtc   stk[used/free:%d/%d usage:%d%%]\r\n",used,free,(used*100)/(used+free));  	  			  
 
@@ -1069,29 +1235,32 @@ void TASK_STA_task(void *p_arg)
 		OSTaskStkChk (&TASK_STA_Task_TCB,&free,&used,&err); 
 		dgb_printf_safe("app_task_sta   stk[used/free:%d/%d usage:%d%%]\r\n",used,free,(used*100)/(used+free));
 #endif		
-		delay_ms(6000);
+		delay_ms(10000);
 	}
 }
 
 //任务15.浮点测试任务
 void float_task(void *p_arg)
 {
+	OS_ERR err; 
 	CPU_SR_ALLOC();
 	static float float_num=0.01;
+char node_message[16] = {0};
 	while(1)
 	{
-		
-		//RC522_Handel();
-		
-		
-		
-		
-#if 0
 		float_num+=0.01f;
 		OS_CRITICAL_ENTER();	//进入临界区
-		printf("float_num的值为: %.4f\r\n",float_num);
+		dgb_printf_safe("float_num的值为: %.4f\r\n",float_num);
 		OS_CRITICAL_EXIT();		//退出临界区
-#endif	
-		delay_ms(500);			//延时500ms
+		
+			
+		sprintf(node_message,"CHN:%d ADDR:%d",My_LoRa_CFG.chn,My_LoRa_CFG.addr);
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+		OLED_Clear();
+		OLED_ShowString(0,0,(uint8_t *)node_message,16);
+		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
+		
+		delay_ms(10000);			//延时500ms
+		
 	}
 }

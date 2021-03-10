@@ -175,7 +175,7 @@
           </Flash1>
           <bUseTDR>1</bUseTDR>
           <Flash2>Segger\JL2CM3.dll</Flash2>
-          <Flash3>"" ()</Flash3>
+          <Flash3></Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -224,7 +224,7 @@
             <hadIRAM2>0</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
-            <useUlib>1</useUlib>
+            <useUlib>0</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
             <RoSelD>3</RoSelD>
@@ -359,13 +359,13 @@
             <wLevel>0</wLevel>
             <uThumb>0</uThumb>
             <uSurpInc>0</uSurpInc>
-            <uC99>0</uC99>
+            <uC99>1</uC99>
             <useXO>0</useXO>
             <VariousControls>
               <MiscControls></MiscControls>
               <Define>STM32F10X_HD,USE_STDPERIPH_DRIVER</Define>
               <Undefine></Undefine>
-              <IncludePath>..\USER;..\CORE;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\STM32F10x_FWLib\inc;..\FWLIB\STM32F10x_FWLib\inc;..\UCOSIII\uC-CPU;..\UCOSIII\uC-LIB;..\UCOSIII\uCOS-III;..\UCOSIII\UCOS_BSP;..\UCOSIII\uCOS_CONFIG;..\UCOSIII\uCOS-III\Source;..\UCOSIII\uC-CPU\ARM-Cortex-M3\RealView;..\UCOSIII\uC-LIB\Ports\ARM-Cortex-M3\RealView;..\UCOSIII\uCOS-III\Ports\ARM-Cortex-M3\Generic\RealView;..\CJSON;..\MALLOC;..\HARDWARE\LED;..\HARDWARE\DHT11;..\HARDWARE\USART2;..\HARDWARE\OLED;..\HARDWARE\RC522</IncludePath>
+              <IncludePath>..\USER;..\CORE;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\STM32F10x_FWLib\inc;..\FWLIB\STM32F10x_FWLib\inc;..\UCOSIII\uC-CPU;..\UCOSIII\uC-LIB;..\UCOSIII\uCOS-III;..\UCOSIII\UCOS_BSP;..\UCOSIII\uCOS_CONFIG;..\UCOSIII\uCOS-III\Source;..\UCOSIII\uC-CPU\ARM-Cortex-M3\RealView;..\UCOSIII\uC-LIB\Ports\ARM-Cortex-M3\RealView;..\UCOSIII\uCOS-III\Ports\ARM-Cortex-M3\Generic\RealView;..\LORA_1;..\CJSON;..\MALLOC;..\HARDWARE\LED;..\HARDWARE\USART2;..\HARDWARE\USART3;..\HARDWARE\USART4;..\HARDWARE\TIMER;..\HARDWARE\DHT11;..\HARDWARE\BEEP;..\HARDWARE\OLED;..\HARDWARE\KEY;..\HARDWARE\RTC;..\HARDWARE\MQ135</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -429,24 +429,9 @@
           <GroupName>HARDWARE</GroupName>
           <Files>
             <File>
-              <FileName>bmp.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\HARDWARE\OLED\bmp.c</FilePath>
-            </File>
-            <File>
-              <FileName>dht11.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\HARDWARE\DHT11\dht11.c</FilePath>
-            </File>
-            <File>
               <FileName>led.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\LED\led.c</FilePath>
-            </File>
-            <File>
-              <FileName>oled.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\HARDWARE\OLED\oled.c</FilePath>
             </File>
             <File>
               <FileName>usart2.c</FileName>
@@ -454,9 +439,54 @@
               <FilePath>..\HARDWARE\USART2\usart2.c</FilePath>
             </File>
             <File>
-              <FileName>RC522.c</FileName>
+              <FileName>usart3.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HARDWARE\RC522\RC522.c</FilePath>
+              <FilePath>..\HARDWARE\USART3\usart3.c</FilePath>
+            </File>
+            <File>
+              <FileName>uart4.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\USART4\uart4.c</FilePath>
+            </File>
+            <File>
+              <FileName>timer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\TIMER\timer.c</FilePath>
+            </File>
+            <File>
+              <FileName>dht11.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\DHT11\dht11.c</FilePath>
+            </File>
+            <File>
+              <FileName>oled.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\OLED\oled.c</FilePath>
+            </File>
+            <File>
+              <FileName>bmp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\OLED\bmp.c</FilePath>
+            </File>
+            <File>
+              <FileName>beep.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\BEEP\beep.c</FilePath>
+            </File>
+            <File>
+              <FileName>key.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\KEY\key.c</FilePath>
+            </File>
+            <File>
+              <FileName>rtc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\RTC\rtc.c</FilePath>
+            </File>
+            <File>
+              <FileName>mq135.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\MQ135\mq135.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -504,6 +534,21 @@
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\misc.c</FilePath>
             </File>
             <File>
+              <FileName>stm32f10x_gpio.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_gpio.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_usart.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_rcc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_rcc.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f10x_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_adc.c</FilePath>
@@ -514,9 +559,29 @@
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_bkp.c</FilePath>
             </File>
             <File>
+              <FileName>stm32f10x_can.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_can.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_cec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_cec.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_crc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_crc.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f10x_dac.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_dac.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_dbgmcu.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_dbgmcu.c</FilePath>
             </File>
             <File>
               <FileName>stm32f10x_dma.c</FileName>
@@ -534,9 +599,14 @@
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_flash.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f10x_gpio.c</FileName>
+              <FileName>stm32f10x_fsmc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_gpio.c</FilePath>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_fsmc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f10x_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_i2c.c</FilePath>
             </File>
             <File>
               <FileName>stm32f10x_iwdg.c</FileName>
@@ -544,9 +614,9 @@
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_iwdg.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f10x_rcc.c</FileName>
+              <FileName>stm32f10x_pwr.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_rcc.c</FilePath>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_pwr.c</FilePath>
             </File>
             <File>
               <FileName>stm32f10x_rtc.c</FileName>
@@ -559,14 +629,19 @@
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_sdio.c</FilePath>
             </File>
             <File>
+              <FileName>stm32f10x_spi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_spi.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f10x_tim.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_tim.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f10x_usart.c</FileName>
+              <FileName>stm32f10x_wwdg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_usart.c</FilePath>
+              <FilePath>..\FWLIB\STM32F10x_FWLib\src\stm32f10x_wwdg.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -787,6 +862,21 @@
               <FileName>os_cfg_app.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\UCOSIII\uCOS_CONFIG\os_cfg_app.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>LORA</GroupName>
+          <Files>
+            <File>
+              <FileName>lora_app.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\LORA_1\lora_app.c</FilePath>
+            </File>
+            <File>
+              <FileName>lora_cfg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\LORA_1\lora_cfg.h</FilePath>
             </File>
           </Files>
         </Group>

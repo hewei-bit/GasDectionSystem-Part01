@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "sys.h": "c",
+        "uart4.h": "c",
+        "lora_app.h": "c",
+        "lora_cfg.h": "c"
+    }
+}

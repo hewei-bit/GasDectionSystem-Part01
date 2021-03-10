@@ -113,7 +113,7 @@ u8 DHT11_Init(void)
 	return DHT11_Check();//等待DHT11的回应
 } 
 
-static GPIO_InitTypeDef		GPIO_InitStructure;
+//static GPIO_InitTypeDef		GPIO_InitStructure;
 
 int32_t dht11_read(uint8_t *pdht_data)
 {

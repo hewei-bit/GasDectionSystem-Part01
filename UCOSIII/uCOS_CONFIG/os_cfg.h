@@ -43,7 +43,7 @@
 #define OS_CFG_OBJ_TYPE_CHK_EN          1u   /* Enable (1) or Disable (0) object type checking                        */
 #define OS_CFG_TS_EN                    1u   /* Enable (1) or Disable (0) time stamping                               */
 
-#define OS_CFG_PEND_MULTI_EN            1u   /* Enable (1) or Disable (0) code generation for multi-pend feature      */
+#define OS_CFG_PEND_MULTI_EN            0u   /* Enable (1) or Disable (0) code generation for multi-pend feature      */
 
 #define OS_CFG_PRIO_MAX                64u   /* Defines the maximum number of task priorities (see OS_PRIO data type) */
 
