@@ -17,8 +17,6 @@
 #include "key.h"
 #include "rtc.h"
 
-
-
 /****************************************************************
 *名    称:输气站场气体泄漏检测系统
 *作    者:何蔚
@@ -28,14 +26,19 @@
 *当前日期:2021/01/08 完成V3.0
 *当前日期:2021/03/09 完成V4.0
 
+*当前日期:2021/03/10 完成定点检测节点代码
+*当前日期:2021/03/11 完成遥测检测节点代码
+*当前日期:2021/03/12 完成中继节点代码
+*当前日期:2021/03/14 完成V5.0
+
 *任务：
 	1.开始任务 创建信号量 消息队列 互斥锁 事件标志组 任务
 	2.DHT11温湿度采集,单总线采集，  	互斥锁 oled显示		数据通过消息队列发送数据到线程存储、转发任务
 	3.TDLAS气体浓度采集，串口接收浓度数据，互斥锁 oled显示	数据通过消息队列发送数据到线程存储、转发任务        
-	4.MQ135 浓度采集
+	(该节点不使用)4.MQ135 浓度采集
 	5.MQ4 浓度采集
-	6.看门狗
-	7.本地存储任务 等待多个内核对象 消息队列接收数据 以txt格式存入SD卡
+	(该节点不使用)6.看门狗
+	(该节点不使用)7.本地存储任务 等待多个内核对象 消息队列接收数据 以txt格式存入SD卡
 	8.LORA转发 等待多个内核对象 消息队列接收数据 usart3 发送至上位机
 	9.RTC时间显示 互斥锁 oled显示	
 	10.LED0 信号量接受数据 报警
@@ -43,8 +46,8 @@
 	12.BEEP 信号量接受数据 报警
 	13.KEY 
 	14.任务状态
-	
-	
+	15.float
+	(该节点不使用)16.mpu6050 六轴传感器 显示当前云台角度数据 
 *说  明:		
 	当前代码尽可能实现了模块化编程，一个任务管理一个硬件。最简单的
 	led、蜂鸣器都由单独任务管理。
@@ -54,6 +57,7 @@
 //V2.0 完成OLED显示 串口响应  LORA任务中dht11和TDLAS的消息队列传输
 //V3.0 完成上位机对下位机的数据问询
 //V4.0 完成lora信息传输 
+//V5.0 系统组网
 
 /*****************************定义任务堆栈*************************************/
 //UCOSIII中以下优先级用户程序不能使用，ALIENTEK
@@ -183,8 +187,7 @@ OS_SEM					g_sem_beep;
 OS_MUTEX				g_mutex_printf;	
 OS_MUTEX				g_mutex_oled;		
 OS_MUTEX				g_mutex_lcd;
-OS_MUTEX				g_mutex_TDLAS;
-OS_MUTEX				g_mutex_DHT11;
+
 OS_MUTEX				g_mutex_NODE;
 
 /*****************************消息队列的对象*******************************/
@@ -211,27 +214,22 @@ OS_Q					g_queue_MQ4_to_txt;			//消息队列的对象
 uint32_t 				g_oled_display_flag=1;
 uint32_t 				g_oled_display_time_count=0;
 
-
-//存放DHT11和tdlas传感器数据
-char temp_buf[16] = {0};
-char humi_buf[16] = {0};
-char TDLAS[20] = {0};
-char MQ135[20] = {0};
-char MQ4[20] = {0};
-
-extern __IO u16 MQ135_ADC_ConvertedValue;
+extern __IO int MQ135_ADC_ConvertedValue;
 
 //修改节点结构体
 NODE node_1;
+NODE *node1 = &node_1;
+
 //节点初始化
 void node_init(void)
 {
-	node_1.device_id = 1;
-	node_1.lora_address = My_LoRa_CFG.addr;
-	node_1.lora_channel = My_LoRa_CFG.chn;
+	sprintf((char *)node_1.device_id,"%d",4);
+	sprintf((char *)node_1.lora_address,"%d", LORA_ADDR);
+	sprintf((char *)node_1.lora_channel,"%d", LORA_CHN);
 	strcpy(node_1.temperature,"25.0");
 	strcpy(node_1.humidity,"50.0");
-	strcpy(node_1.CH4concentration,"000.0");
+	strcpy(node_1.CH4concentration,"000.00");
+	strcpy((char *)node_1.over,"\r\n");	
 }
 
 //互斥访问usart1
@@ -274,16 +272,13 @@ int main(void)
 	char node_message[16] = {0};
 	CPU_SR_ALLOC();
 	
-	
-	
-	
 	node_init();		//node结构体初始化
 	
 	delay_init();       //延时初始化
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //中断分组配置
 	
 	uart_init(115200);    	//串口波特率设置
-	usart2_init(115200);    //串口波特率设置
+	usart2_init(9600);    //串口波特率设置
 	uart4_init(115200);    	//串口波特率设置
 
 	while(LoRa_Init())		//初始化ATK-LORA-01模块
@@ -291,9 +286,10 @@ int main(void)
 		printf("未检测到    LORA   模块!!! \r\n");		
 		delay_ms(300);
 	}
-	LoRa_Set();				//初始化ATK-LORA-01模块
-	
-	
+	LoRa_Set();			//初始化ATK-LORA-01模块
+	Lora_mode = 0;      //标记"接收模式"
+	set_Already = 1;
+		
 	LED_Init();         //LED初始化
 	KEY_Init();			//KEY初始化 
 	BEEP_Init(); 		//BEEP初始化
@@ -312,7 +308,6 @@ int main(void)
 	OLED_ShowString(0,0,(uint8_t *)node_message,16);	
 	
 	RTC_Init();
-
 	
 	OSInit(&err);		//初始化UCOSIII
 	OS_CRITICAL_ENTER();//进入临界区
@@ -369,6 +364,8 @@ void start_task(void *p_arg)
 	OSMutexCreate(&g_mutex_printf,	"g_mutex_printf",&err);	
 	OSMutexCreate(&g_mutex_oled,	"g_mutex_oled",&err);
 	OSMutexCreate(&g_mutex_lcd,		"g_mutex_olcd",&err);
+
+	OSMutexCreate(&g_mutex_NODE,		"g_mutex_NODE",&err);
 	
 	//创建消息队列，用于usart2发送至TDLAS
 	OSQCreate(&g_queue_usart1,"g_queue_usart1",16,&err);
@@ -600,13 +597,10 @@ void DHT11_task(void *p_arg)
 	OS_ERR err;
 	
 	//DHT11 温湿度
-	uint8_t dht11_data[5] = {0};
 	char buf[16] = {0};
+	uint8_t dht11_data[5] = {0};
 	//调试
 	dgb_printf_safe("DHT11 task running\r\n");
-	
-	//LCD_ShowString(30,130,200,16,16,"DHT11 OK");
-	//POINT_COLOR=BLUE;//设置字体为蓝色 
 	
 	while(1)
 	{
@@ -617,29 +611,21 @@ void DHT11_task(void *p_arg)
 		sprintf((char *)buf,"T:%02d.%dC H:%02d.%d%%",dht11_data[2],dht11_data[3],dht11_data[0],dht11_data[1]);
 		
 		//赋值结构体
-		OSMutexPend(&g_mutex_DHT11,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-		sprintf((char *)temp_buf,"%02d.%d",dht11_data[2],dht11_data[3]);
+		OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);
 		sprintf((char *)node_1.temperature,"%02d.%d",dht11_data[2],dht11_data[3]);
 		sprintf((char *)node_1.humidity,"%02d.%d",dht11_data[0],dht11_data[1]);
-		OSMutexPost(&g_mutex_DHT11,OS_OPT_POST_NONE,&err);
+		OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
 		
 		//OLED显示
 		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
 		OLED_ShowString(0,2,(uint8_t *)buf,16);		
 		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
-		
-		
+
 #if 1
 		//调试专用
 		//发送至usart1,进行调试
-		dgb_printf_safe("%s\r\n",buf);
-		//dgb_printf_safe("%s\r\n",temp_buf);
-		//dgb_printf_safe("%s\r\n",node_1.temperature);
-		//dgb_printf_safe("%c",temp_buf[0]);
-		//dgb_printf_safe("%c",temp_buf[1]);
-		//dgb_printf_safe("%c",temp_buf[2]);
-		//dgb_printf_safe("%c\r\n",temp_buf[3]);
-		//dgb_printf_safe("%s\r\n",humi_buf);
+		//dgb_printf_safe("%s\r\n",buf);
+
 #endif 
 		
 #if 0	
@@ -651,12 +637,6 @@ void DHT11_task(void *p_arg)
 				(OS_OPT		)OS_OPT_POST_FIFO,
 				(OS_ERR*	)&err);
 				
-		//发送给txt任务
-		//OSQPost(&g_queue_dht11_to_txt,
-				//(void *)dht11_data,
-				//sizeof(dht11_data),
-				//OS_OPT_POST_FIFO,
-				//&err);
 #endif
 
 		//延时发生任务调度
@@ -673,6 +653,11 @@ void TDLAS_task(void *p_arg)
 	int i = 0;
 	int flag = 0;
 	
+	//消息队列接收结果
+	uint8_t *TDLAS_res=NULL;
+	OS_MSG_SIZE TDLAS_size;
+	char TDLAS[20] = {0};
+	
 	//定点模块浓度
 	int concen = 0;
 	
@@ -681,11 +666,6 @@ void TDLAS_task(void *p_arg)
 	char gq_str[2] = {0};
 	int nd_val = 0;
 	char nd_str[5] = {0};
-	
-	//消息队列接收结果
-	uint8_t *TDLAS_res=NULL;
-	OS_MSG_SIZE TDLAS_size;
-	
 	//最终输出
 	char Fix_result[20] = {0};
 	char telemetry_result_light[20] = {0};
@@ -695,32 +675,7 @@ void TDLAS_task(void *p_arg)
 	dgb_printf_safe("TDLAS task running\r\n");
 	
 	while(1)
-	{	
-
-#if 0
-		//测试代码	
-		if(flag){
-			concen += 100;
-		}
-		else{
-			concen -= 100;
-		}
-		
-		if (concen > 500 || concen < 0)
-		{
-			flag = ~flag;
-		}	
-		//赋值TDLAS
-		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-			sprintf(TDLAS,"%d",concen);
-		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
-		
-		//OLED显示
-		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
-			sprintf(result,"TDLAS: %d ppm",x);
-			OLED_ShowString(0,4,(uint8_t *)result,20);
-		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);	
-#endif		
+	{		
 	
 #if 1	
 		//等待消息队列
@@ -737,7 +692,7 @@ void TDLAS_task(void *p_arg)
 		}
 		
 		//转换TDLAS数值，并合成输出字符串
-		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+
 		if(USART2_RX_STA&0x8000)
 		{                                           
 			int len=USART2_RX_STA&0x3FFF;//得到此次接收数据的长度
@@ -750,8 +705,9 @@ void TDLAS_task(void *p_arg)
 			//dgb_printf_safe("TDLAS:%s\r\n",TDLAS);
 			USART2_RX_STA = 0;
 		}	
-		
-#if 1		
+
+#if 0
+	
 		//遥测模块需要截取字符串
 		//光照强度部分转换
 		strncpy(gq_str, TDLAS+8, 2);
@@ -775,11 +731,14 @@ void TDLAS_task(void *p_arg)
 		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
 #endif
 
-#if 0		
+#if 1		
+		OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+		strcpy(node_1.CH4concentration,TDLAS);
+		OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
+		
 		//定点模块直接转换即可
 		concen = atoi(TDLAS);
 		sprintf(Fix_result,"TDLAS: %d ppm",concen);	
-		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
 
 		//在OLED上显示
 		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
@@ -789,8 +748,8 @@ void TDLAS_task(void *p_arg)
 #endif
 
 #endif 
-		//延时发生任务调度
-		delay_ms(1000);
+
+
 	}
 }
 	
@@ -849,10 +808,11 @@ void MQ4_task(void *parg)
 	*******************************************/
 
 	//mq135转换值
-	float MQ135_ADC_ConvertedValue_Local;
-	int CH4_ppm;
-	int Voltage;
-	
+	int MQ135_ADC_ConvertedValue_Local;
+	float CH4_ppm;
+	float Voltage;
+	char MQ4[20] = {0};
+
 	dgb_printf_safe("MQ4 task running\r\n");
 	
 	while(1)
@@ -860,18 +820,19 @@ void MQ4_task(void *parg)
 		//把电平的模拟信号转换成数值  公式：转换后 = 浮点数 ADC值 /4096 * 3.3
 		Voltage = MQ135_ADC_ConvertedValue/4096*3.3;
 		
-		//空气质量检测值的转换公式 公式：ADC数值 * 3300 /4095
-		CH4_ppm = (Voltage - 0.5) / 0.1 * 200;
-		
-		
+//无天然气环境下,实测AOUT端电压为1.29V,当检测到天然气时,每升高0.1V,实际被测气体升高200ppm
+		CH4_ppm = (Voltage - 1.29) / 0.1 * 200;
+	
 		//组合词条
 		sprintf((char *)MQ4,"CH4:%2.3f ppm ",CH4_ppm);
 
-	 	//OLED显示浓度
-//		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-//		OLED_ShowString(0,4,(uint8_t *)MQ4,16);
-//		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
-
+		sprintf((char *)node_1.CH4concentration,"%2.3f",CH4_ppm);
+		
+		//OLED显示浓度
+		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		OLED_ShowString(0,4,(uint8_t *)MQ4,16);
+		OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+	
 		//延时发生任务调度
 		delay_ms(2000);
 	}
@@ -891,20 +852,82 @@ void SAVE_task(void *parg)
 
 
 //任务8 LORA转发 等待多个内核对象 消息队列接收数据 usart3 发送至上位机
+void Send_Node(NODE *p,u8 len)     
+{
+    static u8 date,i;	   
+	for(i=0;i<len;i++)
+	{
+		date= *(((u8*) &p->device_id)+i);    
+		USART_SendData(USART3,date);   
+		while( USART_GetFlagStatus(USART3,USART_FLAG_TC)!= SET); 
+	}
+}
+
+
 void LORA_task(void *p_arg)
 {
 	OS_ERR err; 
+	//消息队列接收结果
+	int i=0;
+	uint8_t *LORA_res=NULL;
+	OS_MSG_SIZE LORA_size;
+	char LORA[100] = {0};
 	
 	dgb_printf_safe("LORA task running\r\n");
 
-	int i=0;
+	
 	while(1)
 	{
-//		for(i=0; i<sizeof(node_1);i++) 
-//			USART_SendData(USART1,*((u8*)&node_1+i));
-		delay_ms(1000);
+		
+#if 0
+		//等待消息队列
+		LORA_res = OSQPend((OS_Q*			)&g_queue_usart3,
+							(OS_TICK		)0,
+							(OS_OPT			)OS_OPT_PEND_BLOCKING,
+							(OS_MSG_SIZE*	)&LORA_size,
+							(CPU_TS*		)NULL,
+							(OS_ERR*		)&err);
+		
+		if(err != OS_ERR_NONE)
+		{
+			dgb_printf_safe("[LORA_task][OSQPend]Error Code = %d\r\n",err);		
+		}
+		
+		//数据接收
+		if(USART3_RX_STA&0x8000)
+		{                                           
+			int len=USART3_RX_STA&0x3FFF;//得到此次接收数据的长度
+			for(i = 0;i < len;i++)
+			{
+				LORA[i] = USART3_RX_BUF[i];
+			}
+			dgb_printf_safe("LORA:%s\r\n",LORA);
+			
+			//OLED显示
+			OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+			OLED_ShowString(0,4,(uint8_t *)LORA,16);		
+			OSMutexPost(&g_mutex_oled,OS_OPT_POST_NONE,&err);
+		
+			USART3_RX_STA = 0;
+		}	
+		
+#endif 	
+		
+		
+		OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);
+			
+		//发送结构体	
+		Send_Node(&node_1,sizeof(NODE));
+		//LoRa_SendData();
+		printf("%s\r\n",node_1.humidity);
+		printf("%s\r\n",node_1.temperature);
+		
+		OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
+		
+		//两秒发送一次
+		delay_ms(2000);	
 	}
-
+	
 }
 	
 //任务9 rtc时间显示	互斥锁 oled显示	
@@ -1032,8 +1055,8 @@ void led0_task(void *p_arg)
 }
 
 //任务11.光报警任务 led1任务函数
-// LED1 = 1 时蜂鸣器启动
-// LED1 = 0 时蜂鸣器关闭
+// LED1 = 1 时LED启动
+// LED1 = 0 时LED关闭
 void led1_task(void *p_arg)
 {
 	OS_ERR err;
@@ -1041,20 +1064,21 @@ void led1_task(void *p_arg)
 	int concen = 0;
 	while(1)
 	{
-		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-		concen = atoi(TDLAS);
-		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+		OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		concen = atoi(node_1.CH4concentration);
+		OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
 		
 		//dgb_printf_safe("concen: %d \r\n",concen);
-		if(concen > 400)
+		if(concen > 20)
 		{	
+			LED1 = 1;
+			delay_ms(1000);
 			LED1 = 0;	
+			delay_ms(2000);
 		}
 		else{
-			LED1 = 1;	
+			LED1 = 0;	
 		}
-		
-		delay_ms(2000);
 	}
 }
 
@@ -1072,21 +1096,21 @@ void BEEP_task(void *p_arg)
 
 	while(1)
 	{	
-		OSMutexPend(&g_mutex_TDLAS,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
-		concen = atoi(TDLAS);
-		OSMutexPost(&g_mutex_TDLAS,OS_OPT_POST_NONE,&err);
+		OSMutexPend(&g_mutex_NODE,0,OS_OPT_PEND_BLOCKING,NULL,&err);	
+		concen = atoi(node_1.CH4concentration);
+		OSMutexPost(&g_mutex_NODE,OS_OPT_POST_NONE,&err);
 		
 		//dgb_printf_safe("concen: %d \r\n",concen);
-		if(concen > 400)
+		if(concen > 20)
 		{	
-			BEEP = 0;	
+			BEEP = 0;
+			delay_ms(1000);	
+			BEEP = 1;
+			delay_ms(1000);
 		}
 		else{
 			BEEP = 0;	
 		}
-		
-
-		delay_ms(1000);
 	}
 }
 	
@@ -1097,8 +1121,6 @@ void KEY_task(void *p_arg)
 	OS_ERR err;
 
 	OS_FLAGS flags=0;
-	
-	//dgb_printf_safe("KEY task running\r\n");
 	
 	while(1)
 	{
@@ -1235,32 +1257,34 @@ void TASK_STA_task(void *p_arg)
 		OSTaskStkChk (&TASK_STA_Task_TCB,&free,&used,&err); 
 		dgb_printf_safe("app_task_sta   stk[used/free:%d/%d usage:%d%%]\r\n",used,free,(used*100)/(used+free));
 #endif		
-		delay_ms(10000);
+
+
+			
+		delay_ms(6000);
 	}
 }
 
 //任务15.浮点测试任务
+//系统运行监测
 void float_task(void *p_arg)
 {
 	OS_ERR err; 
 	CPU_SR_ALLOC();
 	static float float_num=0.01;
-char node_message[16] = {0};
+	char node_message[16] = {0};
+	
 	while(1)
 	{
 		float_num+=0.01f;
-		OS_CRITICAL_ENTER();	//进入临界区
 		dgb_printf_safe("float_num的值为: %.4f\r\n",float_num);
-		OS_CRITICAL_EXIT();		//退出临界区
-		
-			
+
 		sprintf(node_message,"CHN:%d ADDR:%d",My_LoRa_CFG.chn,My_LoRa_CFG.addr);
+		
 		OSMutexPend(&g_mutex_oled,0,OS_OPT_PEND_BLOCKING,NULL,&err);
 		OLED_Clear();
 		OLED_ShowString(0,0,(uint8_t *)node_message,16);
 		OSMutexPost(&g_mutex_oled,OS_OPT_NONE,&err);
-		
-		delay_ms(10000);			//延时500ms
-		
+
+		delay_ms(2000);			//延时500ms
 	}
 }

@@ -98,12 +98,18 @@
 //节点结构体
 typedef struct 
 {
-	int device_id;
-	int lora_address;
-	int lora_channel;
-	char temperature[10];
-	char humidity[10];
-	char CH4concentration[10];
+	char device_id[4];
+	char lora_address[4];
+	char lora_channel[4];
+	char temperature[8];
+	char humidity[8];
+	char CH4concentration[8];
+	char Pitch[8];
+	char Roll[8];
+	char Yaw[8];
+	char light[4];	
+	char warning[4];
+	char over[4];
 } NODE;
 
 

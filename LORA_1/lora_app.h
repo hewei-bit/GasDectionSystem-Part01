@@ -23,7 +23,7 @@
 
 extern LoRa_CFG My_LoRa_CFG;
 extern u8 Lora_mode;
-
+extern u8 set_Already;
 u8 LoRa_Init(void);
 void Aux_Int(u8 mode);
 void LoRa_Set(void);

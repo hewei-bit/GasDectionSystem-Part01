@@ -1,7 +1,7 @@
 #include "mq135.h"
 
 
-volatile u16 MQ135_ADC_ConvertedValue; 		//声明变量 获取mq135数值
+volatile int MQ135_ADC_ConvertedValue; 		//声明变量 获取mq135数值
 
 //配置ADC DMA GPIO
 void mq135_init()

@@ -60,7 +60,7 @@ typedef struct
 
 
 //设备出厂默认参数
-#define LORA_ADDR    10                //设备地址
+#define LORA_ADDR    14               //设备地址
 #define LORA_CHN     23               //通信信道
 #define LORA_POWER   LORA_PW_20Bbm    //发射功率
 #define LORA_RATE    LORA_RATE_19K2   //空中速率

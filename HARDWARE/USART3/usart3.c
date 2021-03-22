@@ -40,42 +40,87 @@ vu16 USART3_RX_STA=0;
 void USART3_IRQHandler(void)
 {
 	u8 res;	  
-
+	u8 Res;
     OS_ERR err;
 
     int len = 0;
     int t = 0;
-
-    
-	if(USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)//接收到数据
-	{	 
-		res =USART_ReceiveData(USART3);		 
-		if((USART3_RX_STA&(1<<15))==0)              //接收完的一批数据,还没有被处理,则不再接收其他数据
-		{ 
-			if(USART3_RX_STA<USART3_MAX_RECV_LEN)	//还可以接收数据
-			{			
-				if(!Lora_mode)//配置功能下(启动定时器超时)
-				{
-					TIM_SetCounter(TIM7,0);             //计数器清空          				
-					if(USART3_RX_STA==0) 				//使能定时器7的中断 
+	int i;
+#ifdef SYSTEM_SUPPORT_OS
+    //进入中断
+    OSIntEnter();
+#endif
+	
+	if(!set_Already)
+	{
+		if(USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)//接收到数据
+		{	
+			res =USART_ReceiveData(USART3);		 
+			if((USART3_RX_STA & 0x8000)==0)              //接收完的一批数据,还没有被处理,则不再接收其他数据
+			{ 
+				if(USART3_RX_STA<USART3_MAX_RECV_LEN)	//还可以接收数据
+				{			
+					if(!Lora_mode)//配置功能下(启动定时器超时)
 					{
-						TIM_Cmd(TIM7,ENABLE);           //使能定时器7
+						TIM_SetCounter(TIM7,0);             //计数器清空          				
+						if(USART3_RX_STA==0) 				//使能定时器7的中断 
+						{
+							TIM_Cmd(TIM7,ENABLE);           //使能定时器7
+						}
+					}
+					USART3_RX_BUF[USART3_RX_STA++]=res;	//记录接收到的值	 
+				}
+				else 
+				{
+					USART3_RX_STA|=1<<15;				//强制标记接收完成
+				} 
+			}
+		}
+	}  
+	else
+	{
+		if (USART_GetITStatus(USART3, USART_IT_RXNE) != RESET) //接收中断(接收到的数据必须是0x0d 0x0a结尾)
+		{
+			Res = USART_ReceiveData(USART3); //读取接收到的数据
+
+			if ((USART3_RX_STA & 0x8000) == 0) //接收未完成
+			{
+				if (USART3_RX_STA & 0x4000) //接收到了0x0d
+				{
+					if (Res != 0x0a)
+						USART3_RX_STA = 0; //接收错误,重新开始
+					else
+						USART3_RX_STA |= 0x8000; //接收完成了
+				}
+				else //还没收到0X0D
+				{
+					if (Res == 0x0d)
+						USART3_RX_STA |= 0x4000;
+					else
+					{
+						USART3_RX_BUF[USART3_RX_STA & 0X3FFF] = Res;
+						USART3_RX_STA++;
+						if (USART3_RX_STA > (USART3_MAX_RECV_LEN - 1))
+							USART3_RX_STA = 0; //接收数据错误,重新开始接收
 					}
 				}
-				USART3_RX_BUF[USART3_RX_STA++]=res;	//记录接收到的值	 
-			}else 
-			{
-				USART3_RX_STA|=1<<15;				//强制标记接收完成
-			} 
-		}
+			}
+		}		
 	}
 	
-#if 0 //发送消息队列
+#if 0	
+
+#endif	
+	
+#if 1//发送消息队列
 	if (USART3_RX_STA & 0x8000)
     {
         len = USART3_RX_STA & 0x3FFF; //得到此次接收数据的长度
-		printf("TDLAS:%s\r\n",USART3_RX_BUF);
-
+//		for(i=0;i<len;i++)
+//		{
+//			while(USART_GetFlagStatus(USART1,USART_FLAG_TC)==RESET); //循环发送,直到发送完毕   
+//			USART_SendData(USART1,USART3_RX_BUF[i]); 
+//		}
 
         OSQPost((OS_Q *)&g_queue_usart3,
                 (void *)USART3_RX_BUF,
@@ -84,10 +129,14 @@ void USART3_IRQHandler(void)
                 (OS_ERR *)&err);
         if (err != OS_ERR_NONE)
         {
-            printf("[USART3_IRQHandler]OSQPost error code %d\r\n", err);
+            dgb_printf_safe("[USART3_IRQHandler]OSQPost error code %d\r\n", err);
         }
 	}
 #endif	
+
+#ifdef SYSTEM_SUPPORT_OS
+    OSIntExit();
+#endif
 	
 }   
 
